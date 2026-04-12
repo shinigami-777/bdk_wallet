@@ -43,8 +43,9 @@ impl PsbtUtils for Psbt {
 
         match (&input.witness_utxo, &input.non_witness_utxo) {
             (Some(_), _) => input.witness_utxo.clone(),
-            (_, Some(_)) => input.non_witness_utxo.as_ref().map(|in_tx| {
-                in_tx.output[tx.input[input_index].previous_output.vout as usize].clone()
+            (_, Some(_)) => input.non_witness_utxo.as_ref().and_then(|in_tx| {
+                let vout = tx.input.get(input_index)?.previous_output.vout as usize;
+                in_tx.output.get(vout).cloned()
             }),
             _ => None,
         }

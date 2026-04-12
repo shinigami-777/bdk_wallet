@@ -1754,6 +1754,29 @@ impl Wallet {
     /// assert!(finalized, "we should have signed all the inputs");
     /// # Ok::<(),anyhow::Error>(())
     pub fn sign(&self, psbt: &mut Psbt, sign_options: SignOptions) -> Result<bool, SignerError> {
+        // Sanity check: the number of PSBT inputs must match the unsigned transaction's inputs.
+        // A mismatch would cause index-out-of-bounds panics in later processing.
+        if psbt.inputs.len() != psbt.unsigned_tx.input.len() {
+            return Err(SignerError::InputIndexOutOfRange(
+                IndexOutOfBoundsError::new(psbt.inputs.len(), psbt.unsigned_tx.input.len()),
+            ));
+        }
+
+        // Sanity check: validate each non_witness_utxo against its corresponding outpoint.
+        // An attacker providing an externally-crafted PSBT could otherwise supply a
+        // non_witness_utxo that belongs to a different transaction, or whose vout is out of range.
+        for (i, input) in psbt.inputs.iter().enumerate() {
+            if let Some(non_witness_utxo) = &input.non_witness_utxo {
+                let outpoint = psbt.unsigned_tx.input[i].previous_output;
+                if non_witness_utxo.compute_txid() != outpoint.txid {
+                    return Err(SignerError::InvalidNonWitnessUtxo);
+                }
+                if outpoint.vout as usize >= non_witness_utxo.output.len() {
+                    return Err(SignerError::InvalidNonWitnessUtxo);
+                }
+            }
+        }
+
         // This adds all the PSBT metadata for the inputs, which will help us later figure out how
         // to derive our keys.
         self.update_psbt_with_descriptor(psbt)
